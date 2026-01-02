@@ -3,6 +3,7 @@ from llama_index.core import VectorStoreIndex
 from llama_index.core.vector_stores import (FilterOperator, MetadataFilter, MetadataFilters)
 from app.db.vector import vector_store_factory
 from app.repositories.metadata import get_available_repos as get_repos_from_db
+from app.core.prompts import QA_PROMPT
 
 class QueryRetriever:
     def __init__(self, repo):
@@ -40,6 +41,7 @@ class QueryRetriever:
             vector_store_query_mode=mode,
             filters=self.filters,
             response_mode="refine",
+            text_qa_template=QA_PROMPT,
         )
 
         response = query_engine.query(query)
