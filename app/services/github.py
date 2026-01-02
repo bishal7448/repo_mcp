@@ -50,7 +50,7 @@ class GithubFileLoader:
     def fetch_repository_files(
         self,
         repo_url: str,
-        file_extensions: List[str] = [".md", ".mdx"],
+        file_extensions: Optional[List[str]] = None,
         branch: str = "main",
     ) -> Tuple[List[str], str]:
         """
@@ -58,7 +58,7 @@ class GithubFileLoader:
 
         Args:
             repo_url: GitHub repository URL or owner/repo format
-            file_extensions: List of file extensions to filter (e.g., [".md", ".mdx", ".txt"])
+            file_extensions: List of file extensions to filter. If None, fetch all files.
             branch: Branch name to fetch from
 
         Returns:
@@ -87,6 +87,12 @@ class GithubFileLoader:
                 for item in data.get("tree", []):
                     if item["type"] == "blob":
                         file_path = item["path"]
+                        
+                        # If file_extensions is None, include all files
+                        if file_extensions is None:
+                            filtered_files.append(file_path)
+                            continue
+                            
                         # Check if file has any of the specified extensions
                         if any(
                             file_path.lower().endswith(ext.lower())
@@ -95,16 +101,16 @@ class GithubFileLoader:
                             filtered_files.append(file_path)
 
                 if filtered_files:
-                    ext_str = ", ".join(file_extensions)
+                    ext_str = ", ".join(file_extensions) if file_extensions else "all files"
                     return (
                         filtered_files,
-                        f"Found {len(filtered_files)} files with extensions ({ext_str}) in {repo_name}/{branch}",
+                        f"Found {len(filtered_files)} files ({ext_str}) in {repo_name}/{branch}",
                     )
                 else:
-                    ext_str = ", ".join(file_extensions)
+                    ext_str = ", ".join(file_extensions) if file_extensions else "all files"
                     return (
                         [],
-                        f"No files with extensions ({ext_str}) found in repository {repo_name}/{branch}",
+                        f"No files ({ext_str}) found in repository {repo_name}/{branch}",
                     )
 
             elif response.status_code == 404:
@@ -462,7 +468,7 @@ def fetch_markdown_files(
 
 def fetch_repository_files(
     repo_url: str,
-    file_extensions: List[str] = [".md", ".mdx"],
+    file_extensions: Optional[List[str]] = None,
     github_token: Optional[str] = None,
     branch: str = "main",
 ) -> Tuple[List[str], str]:
@@ -471,7 +477,7 @@ def fetch_repository_files(
 
     Args:
         repo_url: GitHub repository URL or owner/repo format
-        file_extensions: List of file extensions to filter
+        file_extensions: List of file extensions to filter. If None, fetch all files.
         github_token: GitHub API token for higher rate limits
         branch: Branch name to fetch from
 

@@ -22,8 +22,8 @@ from app.repositories.metadata import (
     delete_repository_data,
     get_repository_stats
 )
-from app.services.github import fetch_markdown_files as fetch_files_with_loader
-from app.services.github import fetch_repository_files, load_github_files
+from app.services.github import fetch_repository_files as fetch_files_with_loader
+from app.services.github import load_github_files
 from app.services.ingestion import ingest_documents_async
 from app.services.search import QueryRetriever
 
@@ -81,7 +81,7 @@ def index_page():
                     
                     # Fetch files
                     files, message = await asyncio.get_event_loop().run_in_executor(
-                        None, fetch_files_with_loader, url
+                        None, lambda: fetch_files_with_loader(url, file_extensions=None)
                     )
                     
                     files_area.clear()
@@ -91,19 +91,36 @@ def index_page():
                     
                     ui.notify(f'Found {len(files)} files', type='positive')
                     
+                    # Extract extensions for filter
+                    extensions = sorted(list(set(os.path.splitext(f)[1].lower() for f in files)))
+                    extensions.insert(0, 'All')
+
                     # File Selection Area
                     with files_area:
                         ui.label(f'Select Files from {url}').classes('text-lg font-bold mt-4')
                         
                         checkboxes = []
-                        with ui.row():
-                            ui.button('Select All', on_click=lambda: [c.set_value(True) for c in checkboxes]).props('flat dense')
-                            ui.button('Clear', on_click=lambda: [c.set_value(False) for c in checkboxes]).props('flat dense')
+                        with ui.row().classes('items-center gap-4'):
+                            filter_select = ui.select(extensions, value='All', label='Filter by Extension').classes('w-48')
+                            
+                            ui.button('Select Visible', on_click=lambda: [c.set_value(True) for c in checkboxes if c.visible]).props('flat dense')
+                            ui.button('Clear All', on_click=lambda: [c.set_value(False) for c in checkboxes]).props('flat dense')
                         
                         with ui.scroll_area().classes('h-64 border rounded p-2'):
                             for f in files:
                                 c = ui.checkbox(f, value=False)
+                                c.classes('w-full') # block style
                                 checkboxes.append(c)
+
+                        def apply_filter(e):
+                            ext = filter_select.value
+                            for c in checkboxes:
+                                if ext == 'All' or c.text.lower().endswith(ext):
+                                    c.visible = True
+                                else:
+                                    c.visible = False
+                        
+                        filter_select.on_value_change(apply_filter)
                         
                         # Progress Area
                         progress_log = ui.log().classes('w-full h-48 bg-gray-100 p-2 rounded mt-4 text-xs font-mono')
@@ -212,7 +229,7 @@ def index_page():
                         
                         query_input.value = ''
                         with chat_container:
-                            ui.chat_message(q, name='User', sent=True)
+                            ui.chat_message(q, name='Me', sent=True)
                             spinner = ui.spinner('dots')
                         
                         try:
@@ -228,7 +245,7 @@ def index_page():
                             source_nodes = result.get('source_nodes', [])
                             
                             with chat_container:
-                                ui.chat_message(response_text, name='AI', sent=False)
+                                ui.chat_message(response_text, name='REPO_MCP', sent=False)
                             
                             # Update sources display
                             sources_display.clear()
