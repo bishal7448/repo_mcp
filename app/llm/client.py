@@ -5,7 +5,7 @@ class LLMProvider:
     def __init__(self):
         self.llm = NebiusLLM(
             api_key=settings.NEBIUS_API_KEY,
-            model="meta-llama/Llama-3.3-70B-Instruct" # TODO: change model
+            model="google/gemma-2-9b-it-fast" # TODO: change model
         )
 
     def get_llm(self):
