@@ -39,11 +39,11 @@ graph TD
     
     subgraph "External"
         GitHubAPI[GitHub API]
-        Gemini[Gemini / LLM API]
+        OpenAI[OpenAI / LLM API]
     end
     
     GitHub <--> GitHubAPI
-    LLM <--> GoogleAPI
+    LLM <--> OpenAI
     Ingestion --> VectorDB
 ```
 
@@ -154,5 +154,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 
 
