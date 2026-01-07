@@ -1,5 +1,9 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 class Settings(BaseSettings):
     # App
@@ -8,6 +12,7 @@ class Settings(BaseSettings):
     # API Keys
     GITHUB_API_KEY: str = "default_github_api_key"
     NEBIUS_API_KEY: str = "default_nebius_api_key"
+    GOOGLE_API_KEY: str = "default_google_api_key"
     MONGODB_URI: str = "default_mongodb_uri"
     
     # Database
@@ -20,7 +25,7 @@ class Settings(BaseSettings):
     FTS_INDEX_NAME: str = "doc_mcp_fts_index"
     
     # Model Config
-    EMBEDDING_DIM: int = 4096
+    EMBEDDING_DIM: int = 768
 
     model_config = {
         "env_file": ".env",
