@@ -2,8 +2,13 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 
-load_dotenv()
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+env_path = BASE_DIR / ".env"
+
+load_dotenv(dotenv_path=env_path, override=True)
 
 class Settings(BaseSettings):
     # App

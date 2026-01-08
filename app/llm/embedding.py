@@ -7,7 +7,7 @@ class EmbeddingProvider:
     def __init__(self):
         self.embedding = GeminiEmbedding(
             model_name="models/text-embedding-004",
-            api_key="AIzaSyCKZTLLFExGXPrRhIE1uZurHrkp3ZTki6Q",
+            api_key=settings.GOOGLE_API_KEY,
         )
 
     def get_embedding(self):
