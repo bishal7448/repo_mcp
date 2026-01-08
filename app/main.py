@@ -485,10 +485,10 @@ def index_page():
             
             # Hardcoded Team Info
             team_members = [
-                {'name': 'Jaydeep Biswas', 'username': 'Jaydeep1236', 'role': 'Team Lead & Full Stack Dev'},
+                {'name': 'Jaydeep Biswas', 'username': 'Jaydeep1236', 'role': 'Team Lead & Dev'},
                 {'name': 'Bishal Saha', 'username': 'bishal7448', 'role': 'RAG + MCP Specialist'},
-                # {'name': '', 'username': '', 'role': ''},
-                # {'name': '', 'username': '', 'role': ''}
+                {'name': 'Debjit Saha', 'username': 'Debjit07-alpha', 'role': 'Ppt Designer & frontend'},
+                {'name': 'Tamanna Khatick', 'username': 'tamannakhatick', 'role': 'Ppt Designer & Research'}
                 
             ]
 
