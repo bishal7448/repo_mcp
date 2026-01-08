@@ -2,7 +2,9 @@ import asyncio
 import os
 import time
 import traceback
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+from uuid import uuid4
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,6 +42,7 @@ ENABLE_REPO_MANAGEMENT = os.getenv("ENABLE_REPO_MANAGEMENT", "true").lower() == 
 def index_page():
     # Page Layout
     ui.add_head_html('<style>body { background-color: #f0f4f8; }</style>')
+    ui.add_css(r'a:link, a:visited {color: inherit !important; text-decoration: none; font-weight: 500}')
     
     # Header
     with ui.header().classes('bg-slate-800 text-white shadow-lg items-center px-4 py-2'):
@@ -196,10 +199,11 @@ def index_page():
 
         # --- QUERY TAB ---
         with ui.tab_panel(query_tab):
-            with ui.row().classes('w-full'):
-                # Left Col: Chat
-                with ui.column().classes('w-2/3'):
-                    ui.markdown('### 🤖 AI Documentation Assistant')
+            with ui.row().classes('w-full no-wrap items-start'):
+                # Left Col: Chat Wrapper
+                chat_wrapper = ui.column().classes('w-2/3 h-full')
+                with chat_wrapper:
+                    ui.markdown('### 🤖 AI Assistant')
                     
                     repos = get_available_repos() or []
                     repo_select = ui.select(repos, label='Select Repository', with_input=True).classes('w-full')
@@ -210,152 +214,200 @@ def index_page():
                         repo_select.update()
                         ui.notify('Repositories Refreshed')
 
-                    ui.button('Refresh Repos', on_click=refresh_repos).props('flat dense')
+                    with ui.row().classes('items-center w-full justify-between'):
+                        ui.button('Refresh Repos', on_click=refresh_repos).props('flat dense')
+                        source_switch = ui.switch('Show Sources', value=True)
                     
-                    chat_container = ui.column().classes('w-full h-96 border rounded p-4 bg-white overflow-y-auto')
+                    # Chat Setup
+                    user_id = str(uuid4())
+                    avatar = f'https://robohash.org/{user_id}?bgset=bg2'
+                    
+                    messages: List[Tuple[str, str, str, str]] = []
+
+                    @ui.refreshable
+                    def chat_messages(own_id: str) -> None:
+                        if messages:
+                            for uid, av, text, stamp in messages:
+                                ui.chat_message(text=text, stamp=stamp, avatar=av, sent=own_id == uid)
+                            ui.run_javascript('var el = document.getElementById("chat-container"); if(el) el.scrollTop = el.scrollHeight;')
+                        else:
+                            ui.label('No messages yet').classes('mx-auto my-36 text-gray-400')
+
+                    with ui.column().classes('w-full h-96 border rounded p-4 bg-white overflow-y-auto').props('id=chat-container'):
+                        chat_messages(user_id)
                     
                     query_input = ui.input('Ask a question...').classes('w-full').props('rounded outlined')
-                    
-                    # Sources display references
+                    ui.button('Send', on_click=lambda: process_query()).classes('mt-2')
+
+                # Right Col: Sources Wrapper
+                sources_wrapper = ui.column().classes('w-1/3 p-2 bg-gray-50 h-full border-l')
+                with sources_wrapper:
                     sources_display = ui.column().classes('w-full')
-
-                    async def process_query():
-                        q = query_input.value
-                        repo = repo_select.value
-                        if not q: return
-                        if not repo: 
-                            ui.notify('Select a repository first', type='warning')
-                            return
-                        
-                        query_input.value = ''
-                        with chat_container:
-                            ui.chat_message(q, name='Me', sent=True)
-                            spinner = ui.spinner('dots')
-                        
-                        try:
-                            # Run query
-                            retriever = QueryRetriever(repo)
-                            result = await asyncio.get_event_loop().run_in_executor(
-                                None, lambda: retriever.make_query(q, "default")
-                            )
-                            
-                            chat_container.remove(spinner)
-                            
-                            response_text = result.get('response', 'No response')
-                            source_nodes = result.get('source_nodes', [])
-                            
-                            with chat_container:
-                                ui.chat_message(response_text, name='REPO_MCP', sent=False)
-                            
-                            # Update sources display
-                            sources_display.clear()
-                            with sources_display:
-                                ui.markdown('### Sources')
-                                for node in source_nodes:
-                                    with ui.expansion(f"Source: {node.get('file_name', 'unknown')} ({node.get('score', 0):.2f})"):
-                                        ui.markdown(f"```text\n{node.get('text', '')}\n```")
-                                        
-                        except Exception as e:
-                            print(e)
-                            if 'spinner' in locals(): chat_container.remove(spinner)
-                            ui.notify(f'Error: {str(e)}', type='negative')
-
-                    query_input.on('keydown.enter', process_query)
-                    ui.button('Send', on_click=process_query).classes('mt-2')
-
-                # Right Col: Sources
-                with ui.column().classes('w-1/3 p-2 bg-gray-50 h-full border-l'):
                     with sources_display:
                         ui.label('Sources will appear here...')
+
+                # Toggle Logic
+                def toggle_layout():
+                    if source_switch.value:
+                        sources_wrapper.visible = True
+                        chat_wrapper.classes(remove='w-full', add='w-2/3')
+                    else:
+                        sources_wrapper.visible = False
+                        chat_wrapper.classes(remove='w-2/3', add='w-full')
+                
+                source_switch.on('update:model-value', toggle_layout)
+
+                async def process_query():
+                    q = query_input.value
+                    repo = repo_select.value
+                    if not q: return
+                    if not repo: 
+                        ui.notify('Select a repository first', type='warning')
+                        return
+                    
+                    stamp = datetime.now().strftime('%X')
+                    messages.append((user_id, avatar, q, stamp))
+                    query_input.value = ''
+                    chat_messages.refresh()
+                    
+                    try:
+                        # Run query
+                        retriever = QueryRetriever(repo)
+                        result = await asyncio.get_event_loop().run_in_executor(
+                            None, lambda: retriever.make_query(q, "default")
+                        )
+                        
+                        response_text = result.get('response', 'No response')
+                        source_nodes = result.get('source_nodes', [])
+                        
+                        system_stamp = datetime.now().strftime('%X')
+                        messages.append(('REPO_MCP', 'https://robohash.org/REPO_MCP?bgset=bg2', response_text, system_stamp))
+                        chat_messages.refresh()
+                        
+                        # Update sources display
+                        sources_display.clear()
+                        with sources_display:
+                            ui.markdown('### Sources')
+                            for node in source_nodes:
+                                with ui.expansion(f"Source: {node.get('file_name', 'unknown')} ({node.get('score', 0):.2f})"):
+                                    ui.markdown(f"```text\n{node.get('text', '')}\n```")
+                                    
+                    except Exception as e:
+                        print(e)
+                        ui.notify(f'Error: {str(e)}', type='negative')
+
+                query_input.on('keydown.enter', process_query)
 
         # --- MANAGEMENT TAB ---
         if ENABLE_REPO_MANAGEMENT:
             with ui.tab_panel(management_tab):
-                ui.markdown('### 🗂️ Repository Management')
-                
-                stats_container = ui.column().classes('w-full mb-4')
-                
-                async def refresh_stats():
-                    stats_container.clear()
-                    try:
-                        stats = await asyncio.get_event_loop().run_in_executor(None, get_repository_stats)
-                        with stats_container:
-                            ui.json_editor({'content': {'json': stats}}).classes('w-full')
-                    except Exception as e:
-                        ui.notify(f'Failed to load stats: {e}', type='negative')
+                repo_content = ui.column().classes('w-full')
 
-                ui.button('Refresh Stats', on_click=refresh_stats).props('flat')
-                
-                ui.separator()
-                
-                repo_table_container = ui.column().classes('w-full')
-                delete_repo_select = ui.select([], label='Select Repo to Delete').classes('w-64')
-
-                async def refresh_repo_table():
-                    repo_table_container.clear()
-                    try:
-                        details = await asyncio.get_event_loop().run_in_executor(None, get_repo_details)
-                    except: details = []
-                    
-                    rows = []
-                    if details:
-                        for d in details:
-                            rows.append({
-                                'repo_name': d.get('repo_name'),
-                                'file_count': d.get('file_count'),
-                                'last_updated': str(d.get('last_updated'))
-                            })
-                    
-                    with repo_table_container:
-                        ui.table(
-                            columns=[
-                                {'name': 'repo_name', 'label': 'Repository', 'field': 'repo_name'},
-                                {'name': 'file_count', 'label': 'Files', 'field': 'file_count'},
-                                {'name': 'last_updated', 'label': 'Last Updated', 'field': 'last_updated'},
-                            ],
-                            rows=rows,
-                            row_key='repo_name'
-                        ).classes('w-full')
-
-                    # Refresh delete dropdown too
-                    repos = get_available_repos() or []
-                    delete_repo_select.options = repos
-                    delete_repo_select.update()
+                async def show_repo_details(repo_data):
+                    repo_content.clear()
+                    with repo_content:
+                        ui.button('Back to List', on_click=show_repo_list).props('flat icon=arrow_back')
                         
-                ui.button('Refresh Table', on_click=refresh_repo_table).props('flat')
-                
-                # Initial loads on tab valid? No easier to click. Or use timer.
-                # Just call once
-                refresh_stats()
-                refresh_repo_table()
+                        ui.markdown(f"### 📦 {repo_data.get('repo_name')}")
+                        
+                        with ui.card().classes('w-full p-4 mb-4'):
+                            with ui.row().classes('w-full justify-between'):
+                                ui.label(f"Files: {repo_data.get('file_count')}").classes('text-lg')
+                                ui.label(f"Last Updated: {repo_data.get('last_updated')}").classes('text-gray-500')
+                        
+                        ui.markdown('#### 📄 Ingested Files')
+                        files = repo_data.get('ingested_files', [])
+                        if files:
+                            with ui.scroll_area().classes('h-64 border rounded p-2 w-full'):
+                                for f in files:
+                                    ui.label(f).classes('block border-b py-1')
+                        else:
+                            ui.label('No files listed (might be legacy data)').classes('text-gray-500')
 
-                ui.separator().classes('my-4')
-                
-                ui.markdown('#### 🗑️ Delete Repository')
-                
-                async def delete_repo():
-                    repo = delete_repo_select.value
-                    if not repo: return
-                    
-                    # Confirm dialog
-                    with ui.dialog() as dialog, ui.card():
-                        ui.label(f'Are you sure you want to delete {repo}?')
-                        with ui.row():
-                            ui.button('Cancel', on_click=dialog.close)
-                            def confirm():
-                                dialog.close()
-                                try:
-                                    res = delete_repository_data(repo)
-                                    ui.notify(res.get('message', 'Deleted'), type='positive')
-                                    refresh_repo_table() # Refresh table
-                                    refresh_stats()
-                                except Exception as e:
-                                    ui.notify(str(e), type='negative')
-                                    
-                            ui.button('Delete', on_click=confirm, color='red')
-                    dialog.open()
+                        ui.separator().classes('my-4')
+                        
+                        async def delete_current_repo():
+                            repo = repo_data.get('repo_name')
+                            with ui.dialog() as dialog, ui.card():
+                                ui.label(f'DELETE {repo}? This cannot be undone.')
+                                with ui.row().classes('w-full justify-end'):
+                                    ui.button('Cancel', on_click=dialog.close).props('flat')
+                                    async def confirm():
+                                        dialog.close()
+                                        try:
+                                            # Wrap blocking call
+                                            res = await asyncio.get_event_loop().run_in_executor(None, lambda: delete_repository_data(repo))
+                                            ui.notify(res.get('message', 'Deleted'), type='positive')
+                                            show_repo_list()
+                                        except Exception as e:
+                                            ui.notify(str(e), type='negative')
+                                    ui.button('Confirm Delete', on_click=confirm, color='red')
+                            dialog.open()
 
-                ui.button('Delete Repository', on_click=delete_repo, color='red').classes('mt-2')
+                        ui.button('Delete Repository', on_click=delete_current_repo, color='red').props('icon=delete')
+
+                async def show_repo_list():
+                    repo_content.clear()
+                    with repo_content:
+                        ui.markdown('### 🗂️ Repository Management')
+                        
+                        # Stats
+                        stats_container = ui.column().classes('w-full mb-4')
+                        try:
+                            stats = await asyncio.get_event_loop().run_in_executor(None, get_repository_stats)
+                            with stats_container:
+                                stat_rows = [
+                                    {'metric': 'Total Repositories', 'value': stats.get('total_repositories', 0)},
+                                    {'metric': 'Total Documents', 'value': stats.get('total_documents', 0)},
+                                    {'metric': 'Total Files', 'value': stats.get('total_files', 0)},
+                                ]
+                                ui.table(
+                                    columns=[
+                                        {'name': 'metric', 'label': 'Metric', 'field': 'metric', 'align': 'left'},
+                                        {'name': 'value', 'label': 'Value', 'field': 'value', 'align': 'left'},
+                                    ],
+                                    rows=stat_rows,
+                                    row_key='metric'
+                                ).classes('w-full')
+                        except Exception as e:
+                            ui.notify(f'Failed to load stats: {e}', type='negative')
+
+                        ui.separator().classes('my-4')
+
+                        # Table
+                        try:
+                            details = await asyncio.get_event_loop().run_in_executor(None, get_repo_details)
+                        except: details = []
+                        
+                        rows = []
+                        if details:
+                            for d in details:
+                                rows.append({
+                                    'repo_name': d.get('repo_name'),
+                                    'file_count': d.get('file_count'),
+                                    'last_updated': str(d.get('last_updated')),
+                                    'ingested_files': d.get('ingested_files', [])
+                                })
+                        
+                        if not rows:
+                             ui.label('No repositories found. Add one in the Ingestion tab.').classes('italic text-gray-500')
+                        else:
+                            ui.label('Click a row to view details').classes('text-xs text-gray-400 mb-2')
+                            ui.table(
+                                columns=[
+                                    {'name': 'repo_name', 'label': 'Repository', 'field': 'repo_name', 'align': 'left'},
+                                    {'name': 'file_count', 'label': 'Files', 'field': 'file_count', 'sortable': True},
+                                    {'name': 'last_updated', 'label': 'Last Updated', 'field': 'last_updated', 'sortable': True},
+                                ],
+                                rows=rows,
+                                row_key='repo_name',
+                                pagination=10
+                            ).classes('w-full').on('row-click', lambda e: show_repo_details(e.args[1]))
+                        
+                        ui.button('Refresh', on_click=show_repo_list).props('flat icon=refresh').classes('mt-4')
+
+                # Initial load
+                ui.timer(0, show_repo_list, once=True)
 
 
         # --- API TAB ---
@@ -366,9 +418,13 @@ def index_page():
                 repo_in = ui.input('Repository', placeholder='owner/repo')
                 path_in = ui.input('File Path', placeholder='README.md')
                 
-            api_result = ui.json_editor({'content': {'json': {}}}).classes('w-full h-64')
+            api_content = ui.column().classes('w-full')
             
             async def get_file_content():
+                api_content.clear()
+                with api_content:
+                    ui.spinner('dots')
+                
                 try:
                     docs, failed = await asyncio.get_event_loop().run_in_executor(
                         None, lambda: load_github_files(
@@ -377,21 +433,79 @@ def index_page():
                             github_token=settings.GITHUB_API_KEY
                         )
                     )
-                    if docs:
-                        api_result.properties['content']['json'] = {'content': docs[0].text, 'metadata': docs[0].metadata}
-                    else:
-                        api_result.properties['content']['json'] = {'error': 'File not found', 'failed': failed}
-                    api_result.update()
+                    
+                    api_content.clear()
+                    with api_content:
+                        if docs:
+                            doc = docs[0]
+                            # Metadata Table
+                            ui.label('Metadata').classes('text-lg font-bold')
+                            meta_rows = [{'key': k, 'value': str(v)} for k, v in doc.metadata.items()]
+                            ui.table(
+                                columns=[
+                                    {'name': 'key', 'label': 'Key', 'field': 'key', 'align': 'left'},
+                                    {'name': 'value', 'label': 'Value', 'field': 'value', 'align': 'left'},
+                                ],
+                                rows=meta_rows,
+                                row_key='key',
+                                pagination=5
+                            ).classes('w-full mb-4')
+                            
+                            # Content
+                            ui.label('Content').classes('text-lg font-bold')
+                            with ui.expansion('Show File Content', icon='description').classes('w-full border rounded').props('default-opened'):
+                                ui.code(doc.text, language='markdown').classes('w-full')
+                        else:
+                            ui.notify('File not found', type='warning')
+                            if failed:
+                                ui.label(f"Failed: {failed}").classes('text-red-500')
+                                
                 except Exception as e:
-                    api_result.properties['content']['json'] = {'error': str(e)}
-                    api_result.update()
+                    api_content.clear()
+                    with api_content:
+                         ui.label(f'Error: {str(e)}').classes('text-red-500 font-bold')
+                    ui.notify(f'Error: {str(e)}', type='negative')
 
             ui.button('Get File', on_click=get_file_content)
 
         # --- ABOUT TAB ---
         with ui.tab_panel(about_tab):
             ui.markdown('# 📚 Repo-MCP')
-            ui.markdown('NiceGUI version of the Repository Documentation RAG System.')
+            ui.markdown('NiceGUI version of the Repository RAG System.')
+            
+            ui.separator().classes('my-4')
+            
+            ui.markdown('## 🚀 Hackathon Project')
+            ui.markdown('This project was built for the **TechSprint 2025**.')
+            ui.markdown('Our goal is to assist developers in navigating and understanding complex codebases using RAG + MCP.')
+
+            ui.separator().classes('my-4')
+
+            ui.markdown('## 👥 Team Members')
+            
+            # Hardcoded Team Info
+            team_members = [
+                {'name': 'Jaydeep Biswas', 'username': 'Jaydeep1236', 'role': 'Team Lead & Full Stack Dev'},
+                {'name': 'Bishal Saha', 'username': 'bishal7448', 'role': 'RAG + MCP Specialist'},
+                # {'name': '', 'username': '', 'role': ''},
+                # {'name': '', 'username': '', 'role': ''}
+                
+            ]
+
+            with ui.row().classes('gap-4'):
+                for member in team_members:
+                    username = member['username']
+                    with ui.card().classes('w-64 items-center p-4'):
+                        # GitHub Avatar URL pattern
+                        avatar_url = f"https://github.com/{username}.png"
+                        profile_url = f"https://github.com/{username}"
+                        
+                        ui.image(avatar_url).classes('w-24 h-24 rounded-full mb-2')
+                        ui.label(member['name']).classes('font-bold text-lg')
+                        ui.label(member['role']).classes('text-sm text-gray-500 text-center')
+                        ui.link(f'@{username}', profile_url, new_tab=True).classes('text-sm mt-2 text-blue-600')
+
+            ui.separator().classes('my-4')
             
             ui.link('NiceGUI Documentation', 'https://nicegui.io')
 
